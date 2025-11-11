@@ -1,25 +1,41 @@
 import { useEffect, useState } from 'react';
 import { getToken, clearToken } from '../auth';
-import { getMe, listPosts, createPost, updatePost, deletePost, listComments, addComment } from '../api';
+import {
+  getMe,
+  listPosts,
+  createPost,
+  updatePost,
+  deletePost,
+  listComments,
+  addComment,
+  updateComment,
+  deleteComment
+} from '../api';
 import { useNavigate } from 'react-router-dom';
 
 export default function Dashboard() {
   const [email, setEmail] = useState('');
   const [posts, setPosts] = useState([]);
+
+  // create-post form
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [visibility, setVisibility] = useState('PUBLIC');
+
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // edit state (existing from your previous step)
+  // post edit state
   const [editId, setEditId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [editBody, setEditBody] = useState('');
   const [editVisibility, setEditVisibility] = useState('PUBLIC');
 
-  // comments state: map postId -> {items: [], input: ''}
+  // comments state: map postId -> { items: Comment[] | null, input: string }
   const [comments, setComments] = useState({});
+  // comment edit state
+  const [editCommentId, setEditCommentId] = useState(null);
+  const [editCommentBody, setEditCommentBody] = useState('');
 
   const navigate = useNavigate();
   const token = getToken();
@@ -28,10 +44,17 @@ export default function Dashboard() {
     const all = await listPosts(token);
     setPosts(all);
 
-    // Prime comment containers without fetching all at once (lazy load on expand)
+    // keep any already-loaded comments; init others as {items:null,input:''}
     const initial = {};
-    for (const p of all) initial[p.id] = comments[p.id] || { items: null, input: '' };
+    for (const p of all) {
+      initial[p.id] = comments[p.id] || { items: null, input: '' };
+    }
     setComments(initial);
+  }
+
+  async function refreshComments(postId) {
+    const items = await listComments(token, postId);
+    setComments(prev => ({ ...prev, [postId]: { ...(prev[postId] || {}), items, input: '' } }));
   }
 
   useEffect(() => {
@@ -46,6 +69,7 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, navigate]);
 
+  // ---------- Create post ----------
   const onCreatePost = async (e) => {
     e.preventDefault();
     setErr('');
@@ -65,12 +89,72 @@ export default function Dashboard() {
     }
   };
 
-  // existing edit/delete functions omitted for brevity … (keep from your last step)
+  // ---------- Post edit/delete/visibility ----------
+  const startEditPost = (p) => {
+    setEditId(p.id);
+    setEditTitle(p.title);
+    setEditBody(p.body);
+    setEditVisibility(p.visibility);
+    setErr('');
+  };
 
+  const cancelEditPost = () => {
+    setEditId(null);
+    setEditTitle('');
+    setEditBody('');
+    setEditVisibility('PUBLIC');
+  };
+
+  const saveEditPost = async (id) => {
+    if (!editTitle.trim() || !editBody.trim()) {
+      setErr('Title and description are required');
+      return;
+    }
+    try {
+      setBusy(true);
+      await updatePost(token, id, {
+        title: editTitle.trim(),
+        body: editBody.trim(),
+        visibility: editVisibility
+      });
+      cancelEditPost();
+      await refresh();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removePost = async (id) => {
+    if (!window.confirm('Delete this post?')) return;
+    try {
+      setBusy(true);
+      await deletePost(token, id);
+      await refresh();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const makePostVisibility = async (id, vis) => {
+    try {
+      setBusy(true);
+      await updatePost(token, id, { visibility: vis });
+      await refresh();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // ---------- Comments load/add/edit/delete ----------
   const loadComments = async (postId) => {
     try {
-      const items = await listComments(token, postId);
-      setComments(prev => ({ ...prev, [postId]: { ...(prev[postId] || {}), items } }));
+      await refreshComments(postId);
     } catch (e) {
       setErr(e.message);
     }
@@ -82,9 +166,44 @@ export default function Dashboard() {
       if (!input) return;
       setBusy(true);
       await addComment(token, postId, input);
-      // refresh that post’s comments
-      const items = await listComments(token, postId);
-      setComments(prev => ({ ...prev, [postId]: { items, input: '' } }));
+      await refreshComments(postId);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startEditComment = (c) => {
+    setEditCommentId(c.id);
+    setEditCommentBody(c.body);
+  };
+
+  const cancelEditComment = () => {
+    setEditCommentId(null);
+    setEditCommentBody('');
+  };
+
+  const saveEditComment = async (postId, commentId) => {
+    if (!editCommentBody.trim()) return;
+    try {
+      setBusy(true);
+      await updateComment(token, commentId, editCommentBody.trim());
+      cancelEditComment();
+      await refreshComments(postId);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeComment = async (postId, commentId) => {
+    if (!window.confirm('Delete this comment?')) return;
+    try {
+      setBusy(true);
+      await deleteComment(token, commentId);
+      await refreshComments(postId);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -112,8 +231,20 @@ export default function Dashboard() {
 
       <h3>Create a post</h3>
       <form onSubmit={onCreatePost} style={{ display:'grid', gap: 8, marginBottom: 24 }}>
-        <input placeholder="Title" value={title} onChange={e=>setTitle(e.target.value)} maxLength={200} required />
-        <textarea placeholder="Description" value={body} onChange={e=>setBody(e.target.value)} rows={4} required />
+        <input
+          placeholder="Title"
+          value={title}
+          onChange={e=>setTitle(e.target.value)}
+          maxLength={200}
+          required
+        />
+        <textarea
+          placeholder="Description"
+          value={body}
+          onChange={e=>setBody(e.target.value)}
+          rows={4}
+          required
+        />
         <label style={{ display:'flex', gap:12, alignItems:'center' }}>
           <span>Visibility:</span>
           <select value={visibility} onChange={e=>setVisibility(e.target.value)}>
@@ -132,25 +263,77 @@ export default function Dashboard() {
         {posts.map(p => {
           const mine = p.author === email;
           const cstate = comments[p.id] || { items: null, input: '' };
+          const isEditingPost = editId === p.id;
+
           return (
             <li key={p.id} style={{ border:'1px solid #ddd', borderRadius:8, padding:12 }}>
+              {/* Post header */}
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                 <div>
-                  <strong>{p.title}</strong>{badge(p.visibility)}
+                  {!isEditingPost ? (
+                    <>
+                      <strong>{p.title}</strong>{badge(p.visibility)}
+                    </>
+                  ) : (
+                    <input
+                      value={editTitle}
+                      onChange={e => setEditTitle(e.target.value)}
+                      maxLength={200}
+                      style={{ fontWeight: 600 }}
+                    />
+                  )}
                 </div>
                 <small>{new Date(p.created_at).toLocaleString()}</small>
               </div>
-              <p style={{ margin:'6px 0 8px' }}>{p.body}</p>
+
+              {/* Post body or edit textarea */}
+              {!isEditingPost ? (
+                <p style={{ margin:'6px 0 8px' }}>{p.body}</p>
+              ) : (
+                <textarea
+                  value={editBody}
+                  onChange={e => setEditBody(e.target.value)}
+                  rows={4}
+                  style={{ margin:'6px 0 8px', width:'100%' }}
+                />
+              )}
+
               <small>by {p.author}</small>
 
-              {/* (keep your Edit/Delete/Visibility buttons for mine) */}
+              {/* Post controls (author only) */}
+              {mine && (
+                <div style={{ display:'flex', gap:8, marginTop:8, alignItems:'center' }}>
+                  {!isEditingPost ? (
+                    <>
+                      <button onClick={() => startEditPost(p)}>Edit</button>
+                      <button onClick={() => removePost(p.id)}>Delete</button>
+                      {p.visibility === 'PUBLIC' ? (
+                        <button onClick={() => makePostVisibility(p.id, 'PRIVATE')}>Make Private</button>
+                      ) : (
+                        <button onClick={() => makePostVisibility(p.id, 'PUBLIC')}>Make Public</button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <label style={{ display:'flex', gap:8, alignItems:'center' }}>
+                        <span>Visibility:</span>
+                        <select value={editVisibility} onChange={e=>setEditVisibility(e.target.value)}>
+                          <option value="PUBLIC">Public</option>
+                          <option value="PRIVATE">Private</option>
+                        </select>
+                      </label>
+                      <button onClick={() => saveEditPost(p.id)} disabled={busy}>Save</button>
+                      <button onClick={cancelEditPost} type="button">Cancel</button>
+                    </>
+                  )}
+                </div>
+              )}
 
+              {/* Comments */}
               <div style={{ marginTop: 12 }}>
-                {/* Comments header / loader */}
                 <button
                   onClick={() => {
-                    if (cstate.items == null) loadComments(p.id); // lazy load on first click
-                    else setComments(prev => ({ ...prev, [p.id]: { ...cstate, items: cstate.items } })); // no-op
+                    if (cstate.items == null) loadComments(p.id);
                   }}
                 >
                   {cstate.items == null ? 'Show comments' : `Comments (${cstate.items.length})`}
@@ -161,18 +344,48 @@ export default function Dashboard() {
                 <div style={{ marginTop: 8, padding: '8px 12px', background: '#fafafa', borderRadius: 8 }}>
                   {!cstate.items.length && <p style={{ margin: 0 }}>No comments yet. Be the first!</p>}
                   <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 8 }}>
-                    {cstate.items.map(c => (
-                      <li key={c.id} style={{ borderTop: '1px solid #eee', paddingTop: 6 }}>
-                        <div style={{ display:'flex', justifyContent:'space-between' }}>
-                          <small><b>{c.author}</b></small>
-                          <small>{new Date(c.created_at).toLocaleString()}</small>
-                        </div>
-                        <div>{c.body}</div>
-                      </li>
-                    ))}
+                    {cstate.items.map(c => {
+                      const mineComment = c.author === email;
+                      const isEditingComment = editCommentId === c.id;
+
+                      return (
+                        <li key={c.id} style={{ borderTop: '1px solid #eee', paddingTop: 6 }}>
+                          <div style={{ display:'flex', justifyContent:'space-between' }}>
+                            <small><b>{c.author}</b></small>
+                            <small>{new Date(c.created_at).toLocaleString()}</small>
+                          </div>
+
+                          {!isEditingComment ? (
+                            <div style={{ marginTop: 4 }}>{c.body}</div>
+                          ) : (
+                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
+                              <input
+                                value={editCommentBody}
+                                onChange={e => setEditCommentBody(e.target.value)}
+                                style={{ flex: 1 }}
+                              />
+                              <button
+                                onClick={() => saveEditComment(p.id, c.id)}
+                                disabled={busy}
+                              >
+                                Save
+                              </button>
+                              <button onClick={cancelEditComment} type="button">Cancel</button>
+                            </div>
+                          )}
+
+                          {mineComment && !isEditingComment && (
+                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
+                              <button onClick={() => startEditComment(c)}>Edit</button>
+                              <button onClick={() => removeComment(p.id, c.id)}>Delete</button>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
 
-                  {/* Add comment form */}
+                  {/* Add comment */}
                   <div style={{ display:'flex', gap: 8, marginTop: 8 }}>
                     <input
                       placeholder="Write a comment…"

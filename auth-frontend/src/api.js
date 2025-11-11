@@ -95,3 +95,21 @@ export async function addComment(token, postId, body) {
   return res.json();
 }
 
+export async function updateComment(token, id, body) {
+  const res = await fetch(`${BASE}/api/comments/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ body })
+  });
+  if (!res.ok) throw new Error((await res.json()).message || 'Failed to update comment');
+  return res.json();
+}
+
+export async function deleteComment(token, id) {
+  const res = await fetch(`${BASE}/api/comments/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error((await res.json()).message || 'Failed to delete comment');
+  return res.json();
+}

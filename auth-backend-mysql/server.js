@@ -322,3 +322,72 @@ app.get('/api/posts/:postId/comments', auth, async (req, res) => {
     return res.status(500).json({ message: 'Server error' });
   }
 });
+
+// PUT /api/comments/:id   body: { body }
+app.put('/api/comments/:id', auth, async (req, res) => {
+  try {
+    const commentId = Number(req.params.id);
+    const { body } = req.body || {};
+    if (!body || !body.trim()) return res.status(400).json({ message: 'Comment text required' });
+
+    const userId = await getCurrentUserId(req.user.email);
+    if (!userId) return res.status(401).json({ message: 'User not found' });
+
+    // comment ownership + post visibility check
+    const [rows] = await pool.execute(
+      `SELECT c.id, c.user_id, p.user_id AS post_owner, p.visibility
+         FROM comments c
+         JOIN posts p ON p.id = c.post_id
+        WHERE c.id = ? LIMIT 1`,
+      [commentId]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Comment not found' });
+
+    const c = rows[0];
+    const canSeePost = c.visibility === 'PUBLIC' || c.post_owner === userId;
+    if (!canSeePost) return res.status(403).json({ message: 'Not allowed (post is private)' });
+    if (c.user_id !== userId) return res.status(403).json({ message: 'Not your comment' });
+
+    await pool.execute(`UPDATE comments SET body = ? WHERE id = ?`, [body.trim(), commentId]);
+
+    const [out] = await pool.execute(
+      `SELECT c.id, c.post_id, c.body, c.created_at, u.email AS author
+         FROM comments c
+         JOIN users u ON u.id = c.user_id
+        WHERE c.id = ?`, [commentId]
+    );
+    return res.json(out[0]);
+  } catch (err) {
+    console.error('Update comment error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// DELETE /api/comments/:id
+app.delete('/api/comments/:id', auth, async (req, res) => {
+  try {
+    const commentId = Number(req.params.id);
+    const userId = await getCurrentUserId(req.user.email);
+    if (!userId) return res.status(401).json({ message: 'User not found' });
+
+    const [rows] = await pool.execute(
+      `SELECT c.id, c.user_id, p.user_id AS post_owner, p.visibility
+         FROM comments c
+         JOIN posts p ON p.id = c.post_id
+        WHERE c.id = ? LIMIT 1`,
+      [commentId]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Comment not found' });
+
+    const c = rows[0];
+    const canSeePost = c.visibility === 'PUBLIC' || c.post_owner === userId;
+    if (!canSeePost) return res.status(403).json({ message: 'Not allowed (post is private)' });
+    if (c.user_id !== userId) return res.status(403).json({ message: 'Not your comment' });
+
+    await pool.execute(`DELETE FROM comments WHERE id = ?`, [commentId]);
+    return res.json({ ok: true, id: commentId });
+  } catch (err) {
+    console.error('Delete comment error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
