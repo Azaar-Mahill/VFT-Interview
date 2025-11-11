@@ -25,10 +25,15 @@ export default function Login() {
     <div style={{ maxWidth: 420, margin: '60px auto' }}>
       <h2>Log In</h2>
       <form onSubmit={onSubmit}>
-        <label>Email</label>
-        <input value={email} onChange={e=>setEmail(e.target.value)} type="email" required/>
-        <label>Password</label>
-        <input value={password} onChange={e=>setPassword(e.target.value)} type="password" required/>
+        <div>
+          <label>Email</label>
+          <input value={email} onChange={e=>setEmail(e.target.value)} type="email" required/>
+        </div>
+        <div>
+          <label>Password</label>
+          <input value={password} onChange={e=>setPassword(e.target.value)} type="password" required/>
+        </div>
+        
         <button type="submit">Log In</button>
       </form>
       {err && <p style={{color:'red'}}>{err}</p>}

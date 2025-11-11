@@ -1,0 +1,19 @@
+1. signup account and login-done
+2. create a post with title and description-done
+3. can be used as either public or private posts-done
+4. user can be create , edit and delete (private post can be convert to public and public can be convert to private)-done
+5. others users should be able to comment the posts-done
+6. same user can be able to comment his/her posts-done
+7. same user can be able to edit and delete his/her çomments-done
+8. owner of the post can delete other users comments but cannot edit them-done
+9. comments which a user add to other users posts can be edit or delete-done
+10. 
+
+
+test@example.com
+Passw0rd!
+
+test2@example.com
+Passw0rd2!
+
+hashithadiljay@gmail.com
