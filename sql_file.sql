@@ -49,3 +49,25 @@ ALTER TABLE posts
 -- (Optional) backfill old rows to PUBLIC
 UPDATE posts SET visibility='PUBLIC' WHERE visibility IS NULL;
 
+USE auth_demo;
+CREATE INDEX ix_posts_user ON posts (user_id, id);
+
+USE auth_demo;
+
+CREATE TABLE IF NOT EXISTS comments (
+  id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  post_id    BIGINT UNSIGNED NOT NULL,
+  user_id    BIGINT UNSIGNED NOT NULL,
+  body       TEXT            NOT NULL,
+  created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY ix_comments_post_created (post_id, created_at),
+  CONSTRAINT fk_comments_post
+    FOREIGN KEY (post_id) REFERENCES posts(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_comments_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON DELETE CASCADE
+);
+
+SELECT * FROM auth_demo.comments;

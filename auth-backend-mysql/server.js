@@ -239,3 +239,86 @@ app.delete('/api/posts/:id', auth, async (req, res) => {
     return res.status(500).json({ message: 'Server error' });
   }
 });
+
+// helper already suggested previously
+async function getCurrentUserId(email) {
+  const [rows] = await pool.execute('SELECT id FROM users WHERE email = ? LIMIT 1', [email]);
+  return rows.length ? rows[0].id : null;
+}
+
+/** Create a comment on a post (any logged-in user) */
+app.post('/api/posts/:postId/comments', auth, async (req, res) => {
+  try {
+    const postId = Number(req.params.postId);
+    const { body } = req.body || {};
+    if (!body || !body.trim()) return res.status(400).json({ message: 'Comment text required' });
+
+    // ensure post exists & is visible to commenter
+    // visible if PUBLIC or the commenter owns the post (so they can still comment on their own PRIVATE)
+    const userId = await getCurrentUserId(req.user.email);
+    if (!userId) return res.status(401).json({ message: 'User not found' });
+
+    const [prows] = await pool.execute(
+      `SELECT p.id, p.user_id, p.visibility
+         FROM posts p
+        WHERE p.id = ? LIMIT 1`, [postId]
+    );
+    if (!prows.length) return res.status(404).json({ message: 'Post not found' });
+
+    const post = prows[0];
+    const isOwner = post.user_id === userId;
+    if (post.visibility !== 'PUBLIC' && !isOwner) {
+      return res.status(403).json({ message: 'Not allowed to comment on a private post you do not own' });
+    }
+
+    const [result] = await pool.execute(
+      'INSERT INTO comments (post_id, user_id, body) VALUES (?, ?, ?)',
+      [postId, userId, body.trim()]
+    );
+
+    // return the freshly created comment with author email
+    const [rows] = await pool.execute(
+      `SELECT c.id, c.post_id, c.body, c.created_at, u.email AS author
+         FROM comments c
+         JOIN users u ON u.id = c.user_id
+        WHERE c.id = ?`, [result.insertId]
+    );
+    return res.json(rows[0]);
+  } catch (err) {
+    console.error('Create comment error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/** List comments for a post (only if viewer can see the post) */
+app.get('/api/posts/:postId/comments', auth, async (req, res) => {
+  try {
+    const postId = Number(req.params.postId);
+    const userId = await getCurrentUserId(req.user.email);
+    if (!userId) return res.status(401).json({ message: 'User not found' });
+
+    const [prows] = await pool.execute(
+      `SELECT p.user_id, p.visibility FROM posts p WHERE p.id = ? LIMIT 1`, [postId]
+    );
+    if (!prows.length) return res.status(404).json({ message: 'Post not found' });
+
+    const post = prows[0];
+    const isOwner = post.user_id === userId;
+    if (post.visibility !== 'PUBLIC' && !isOwner) {
+      return res.status(403).json({ message: 'Not allowed to view comments of a private post you do not own' });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT c.id, c.post_id, c.body, c.created_at, u.email AS author
+         FROM comments c
+         JOIN users u ON u.id = c.user_id
+        WHERE c.post_id = ?
+        ORDER BY c.created_at ASC, c.id ASC`,
+      [postId]
+    );
+    return res.json(rows);
+  } catch (err) {
+    console.error('List comments error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});

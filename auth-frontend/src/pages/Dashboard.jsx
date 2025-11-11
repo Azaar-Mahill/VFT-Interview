@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getToken, clearToken } from '../auth';
-import { getMe, listPosts, createPost, updatePost, deletePost } from '../api';
+import { getMe, listPosts, createPost, updatePost, deletePost, listComments, addComment } from '../api';
 import { useNavigate } from 'react-router-dom';
 
 export default function Dashboard() {
@@ -12,11 +12,14 @@ export default function Dashboard() {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // edit state
+  // edit state (existing from your previous step)
   const [editId, setEditId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [editBody, setEditBody] = useState('');
   const [editVisibility, setEditVisibility] = useState('PUBLIC');
+
+  // comments state: map postId -> {items: [], input: ''}
+  const [comments, setComments] = useState({});
 
   const navigate = useNavigate();
   const token = getToken();
@@ -24,6 +27,11 @@ export default function Dashboard() {
   async function refresh() {
     const all = await listPosts(token);
     setPosts(all);
+
+    // Prime comment containers without fetching all at once (lazy load on expand)
+    const initial = {};
+    for (const p of all) initial[p.id] = comments[p.id] || { items: null, input: '' };
+    setComments(initial);
   }
 
   useEffect(() => {
@@ -35,6 +43,7 @@ export default function Dashboard() {
         clearToken();
         navigate('/login');
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, navigate]);
 
   const onCreatePost = async (e) => {
@@ -56,56 +65,26 @@ export default function Dashboard() {
     }
   };
 
-  const startEdit = (p) => {
-    setEditId(p.id);
-    setEditTitle(p.title);
-    setEditBody(p.body);
-    setEditVisibility(p.visibility);
-    setErr('');
-  };
+  // existing edit/delete functions omitted for brevity … (keep from your last step)
 
-  const cancelEdit = () => {
-    setEditId(null);
-    setEditTitle('');
-    setEditBody('');
-    setEditVisibility('PUBLIC');
-  };
-
-  const saveEdit = async (id) => {
+  const loadComments = async (postId) => {
     try {
-      setBusy(true);
-      await updatePost(token, id, {
-        title: editTitle.trim(),
-        body: editBody.trim(),
-        visibility: editVisibility
-      });
-      cancelEdit();
-      await refresh();
+      const items = await listComments(token, postId);
+      setComments(prev => ({ ...prev, [postId]: { ...(prev[postId] || {}), items } }));
     } catch (e) {
       setErr(e.message);
-    } finally {
-      setBusy(false);
     }
   };
 
-  const removePost = async (id) => {
-    if (!window.confirm('Delete this post?')) return;
+  const submitComment = async (postId) => {
     try {
+      const input = (comments[postId]?.input || '').trim();
+      if (!input) return;
       setBusy(true);
-      await deletePost(token, id);
-      await refresh();
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const makeVis = async (id, vis) => {
-    try {
-      setBusy(true);
-      await updatePost(token, id, { visibility: vis });
-      await refresh();
+      await addComment(token, postId, input);
+      // refresh that post’s comments
+      const items = await listComments(token, postId);
+      setComments(prev => ({ ...prev, [postId]: { items, input: '' } }));
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -120,7 +99,7 @@ export default function Dashboard() {
   );
 
   return (
-    <div style={{ maxWidth: 780, margin: '40px auto', padding: 16 }}>
+    <div style={{ maxWidth: 800, margin: '40px auto', padding: 16 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <h2>Dashboard — You have logged in ✅</h2>
         <div>
@@ -148,51 +127,70 @@ export default function Dashboard() {
 
       <h3>Feed (Public + your Private)</h3>
       {!posts.length && <p>No posts yet.</p>}
+
       <ul style={{ listStyle:'none', padding:0, display:'grid', gap:12 }}>
         {posts.map(p => {
           const mine = p.author === email;
+          const cstate = comments[p.id] || { items: null, input: '' };
           return (
             <li key={p.id} style={{ border:'1px solid #ddd', borderRadius:8, padding:12 }}>
-              {editId === p.id ? (
-                // EDIT MODE
-                <div style={{ display:'grid', gap:8 }}>
-                  <input value={editTitle} onChange={e=>setEditTitle(e.target.value)} maxLength={200} />
-                  <textarea value={editBody} onChange={e=>setEditBody(e.target.value)} rows={4} />
-                  <label style={{ display:'flex', gap:12, alignItems:'center' }}>
-                    <span>Visibility:</span>
-                    <select value={editVisibility} onChange={e=>setEditVisibility(e.target.value)}>
-                      <option value="PUBLIC">Public</option>
-                      <option value="PRIVATE">Private</option>
-                    </select>
-                  </label>
-                  <div style={{ display:'flex', gap:8 }}>
-                    <button onClick={() => saveEdit(p.id)} disabled={busy}>Save</button>
-                    <button onClick={cancelEdit} type="button">Cancel</button>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div>
+                  <strong>{p.title}</strong>{badge(p.visibility)}
+                </div>
+                <small>{new Date(p.created_at).toLocaleString()}</small>
+              </div>
+              <p style={{ margin:'6px 0 8px' }}>{p.body}</p>
+              <small>by {p.author}</small>
+
+              {/* (keep your Edit/Delete/Visibility buttons for mine) */}
+
+              <div style={{ marginTop: 12 }}>
+                {/* Comments header / loader */}
+                <button
+                  onClick={() => {
+                    if (cstate.items == null) loadComments(p.id); // lazy load on first click
+                    else setComments(prev => ({ ...prev, [p.id]: { ...cstate, items: cstate.items } })); // no-op
+                  }}
+                >
+                  {cstate.items == null ? 'Show comments' : `Comments (${cstate.items.length})`}
+                </button>
+              </div>
+
+              {cstate.items != null && (
+                <div style={{ marginTop: 8, padding: '8px 12px', background: '#fafafa', borderRadius: 8 }}>
+                  {!cstate.items.length && <p style={{ margin: 0 }}>No comments yet. Be the first!</p>}
+                  <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 8 }}>
+                    {cstate.items.map(c => (
+                      <li key={c.id} style={{ borderTop: '1px solid #eee', paddingTop: 6 }}>
+                        <div style={{ display:'flex', justifyContent:'space-between' }}>
+                          <small><b>{c.author}</b></small>
+                          <small>{new Date(c.created_at).toLocaleString()}</small>
+                        </div>
+                        <div>{c.body}</div>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {/* Add comment form */}
+                  <div style={{ display:'flex', gap: 8, marginTop: 8 }}>
+                    <input
+                      placeholder="Write a comment…"
+                      value={cstate.input}
+                      onChange={e => setComments(prev => ({
+                        ...prev,
+                        [p.id]: { ...cstate, input: e.target.value }
+                      }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          submitComment(p.id);
+                        }
+                      }}
+                    />
+                    <button onClick={() => submitComment(p.id)} disabled={busy}>Comment</button>
                   </div>
                 </div>
-              ) : (
-                // VIEW MODE
-                <>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <div>
-                      <strong>{p.title}</strong>{badge(p.visibility)}
-                    </div>
-                    <small>{new Date(p.created_at).toLocaleString()}</small>
-                  </div>
-                  <p style={{ margin:'6px 0 8px' }}>{p.body}</p>
-                  <small>by {p.author}</small>
-                  {mine && (
-                    <div style={{ display:'flex', gap:8, marginTop:8 }}>
-                      <button onClick={() => startEdit(p)}>Edit</button>
-                      <button onClick={() => removePost(p.id)}>Delete</button>
-                      {p.visibility === 'PUBLIC' ? (
-                        <button onClick={() => makeVis(p.id, 'PRIVATE')}>Make Private</button>
-                      ) : (
-                        <button onClick={() => makeVis(p.id, 'PUBLIC')}>Make Public</button>
-                      )}
-                    </div>
-                  )}
-                </>
               )}
             </li>
           );

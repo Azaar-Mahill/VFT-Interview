@@ -77,4 +77,21 @@ export async function deletePost(token, id) {
   return res.json();
 }
 
+export async function listComments(token, postId) {
+  const res = await fetch(`${BASE}/api/posts/${postId}/comments`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error((await res.json()).message || 'Failed to load comments');
+  return res.json();
+}
+
+export async function addComment(token, postId, body) {
+  const res = await fetch(`${BASE}/api/posts/${postId}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ body })
+  });
+  if (!res.ok) throw new Error((await res.json()).message || 'Failed to add comment');
+  return res.json();
+}
 
