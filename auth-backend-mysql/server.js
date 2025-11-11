@@ -10,6 +10,11 @@ const app = express();
 app.use(express.json());
 app.use(cors({ origin: 'http://localhost:5173', credentials: true })); // adjust if needed
 
+async function getCurrentUserId(email) {
+  const [rows] = await pool.execute('SELECT id FROM users WHERE email = ? LIMIT 1', [email]);
+  return rows.length ? rows[0].id : null;
+}
+
 function createToken(email) {
   return jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: '1h' });
 }
@@ -164,6 +169,73 @@ app.get('/api/posts/mine', auth, async (req, res) => {
     return res.json(rows);
   } catch (err) {
     console.error('List my posts error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// PUT /api/posts/:id  body: { title?, body?, visibility? }
+app.put('/api/posts/:id', auth, async (req, res) => {
+  try {
+    const postId = Number(req.params.id);
+    const { title=null, body=null, visibility=null } = req.body || {};
+
+    // validate visibility if provided
+    let vis = visibility;
+    if (vis != null) {
+      vis = String(vis).toUpperCase();
+      if (!['PUBLIC','PRIVATE'].includes(vis)) {
+        return res.status(400).json({ message: "visibility must be 'PUBLIC' or 'PRIVATE'" });
+      }
+    }
+
+    const userId = await getCurrentUserId(req.user.email);
+    if (!userId) return res.status(401).json({ message: 'User not found' });
+
+    // ownership check
+    const [prow] = await pool.execute('SELECT user_id FROM posts WHERE id = ? LIMIT 1', [postId]);
+    if (!prow.length) return res.status(404).json({ message: 'Post not found' });
+    if (prow[0].user_id !== userId) return res.status(403).json({ message: 'Not your post' });
+
+    // Update with COALESCE so omitted fields keep old values
+    const [result] = await pool.execute(
+      `UPDATE posts
+       SET title = COALESCE(?, title),
+           body  = COALESCE(?, body),
+           visibility = COALESCE(?, visibility)
+       WHERE id = ? AND user_id = ?`,
+      [title, body, vis, postId, userId]
+    );
+
+    if (!result.affectedRows) return res.status(400).json({ message: 'Nothing changed' });
+
+    const [rows] = await pool.execute(
+      `SELECT p.id, p.title, p.body, p.visibility, p.created_at, u.email AS author
+       FROM posts p JOIN users u ON u.id = p.user_id
+       WHERE p.id = ?`, [postId]
+    );
+    return res.json(rows[0]);
+  } catch (err) {
+    console.error('Update post error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// DELETE /api/posts/:id
+app.delete('/api/posts/:id', auth, async (req, res) => {
+  try {
+    const postId = Number(req.params.id);
+    const userId = await getCurrentUserId(req.user.email);
+    if (!userId) return res.status(401).json({ message: 'User not found' });
+
+    // ensure ownership
+    const [prow] = await pool.execute('SELECT user_id FROM posts WHERE id = ? LIMIT 1', [postId]);
+    if (!prow.length) return res.status(404).json({ message: 'Post not found' });
+    if (prow[0].user_id !== userId) return res.status(403).json({ message: 'Not your post' });
+
+    await pool.execute('DELETE FROM posts WHERE id = ? AND user_id = ?', [postId, userId]);
+    return res.json({ ok: true, id: postId });
+  } catch (err) {
+    console.error('Delete post error:', err);
     return res.status(500).json({ message: 'Server error' });
   }
 });

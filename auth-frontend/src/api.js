@@ -58,3 +58,23 @@ export async function createPost(token, { title, body, visibility = 'PUBLIC' }) 
   return res.json();
 }
 
+export async function updatePost(token, id, { title, body, visibility }) {
+  const res = await fetch(`${BASE}/api/posts/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ title, body, visibility })
+  });
+  if (!res.ok) throw new Error((await res.json()).message || 'Failed to update post');
+  return res.json();
+}
+
+export async function deletePost(token, id) {
+  const res = await fetch(`${BASE}/api/posts/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error((await res.json()).message || 'Failed to delete post');
+  return res.json();
+}
+
+
