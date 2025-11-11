@@ -48,11 +48,11 @@ export async function listPosts(token) {
   return res.json();
 }
 
-export async function createPost(token, { title, body }) {
+export async function createPost(token, { title, body, visibility = 'PUBLIC' }) {
   const res = await fetch(`${BASE}/api/posts`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeader(token) },
-    body: JSON.stringify({ title, body })
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ title, body, visibility })
   });
   if (!res.ok) throw new Error((await res.json()).message || 'Failed to create post');
   return res.json();

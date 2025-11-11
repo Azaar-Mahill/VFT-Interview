@@ -96,42 +96,57 @@ app.listen(port, () => console.log(`API listening on http://localhost:${port}`))
 // ---------- POSTS API (requires auth) ----------
 
 // Create a post (title + body) for the logged-in user
+// Create a post (title + body + visibility) for the logged-in user
 app.post('/api/posts', auth, async (req, res) => {
   try {
-    const { title, body } = req.body || {};
+    const { title, body, visibility } = req.body || {};
     if (!title || !body) return res.status(400).json({ message: 'Title and description are required' });
 
-    // find user id by email in token
+    // validate visibility
+    const vis = (visibility || 'PUBLIC').toUpperCase();
+    if (!['PUBLIC', 'PRIVATE'].includes(vis)) {
+      return res.status(400).json({ message: "visibility must be 'PUBLIC' or 'PRIVATE'" });
+    }
+
+    // find user id
     const [urows] = await pool.execute('SELECT id FROM users WHERE email = ? LIMIT 1', [req.user.email]);
     if (!urows.length) return res.status(401).json({ message: 'User not found' });
     const userId = urows[0].id;
 
-    const sql = 'INSERT INTO posts (user_id, title, body) VALUES (?, ?, ?)';
-    const [result] = await pool.execute(sql, [userId, title, body]);
+    const sql = 'INSERT INTO posts (user_id, title, body, visibility) VALUES (?, ?, ?, ?)';
+    const [result] = await pool.execute(sql, [userId, title, body, vis]);
 
-    return res.json({ id: result.insertId, title, body, user_id: userId });
+    return res.json({ id: result.insertId, title, body, visibility: vis, user_id: userId });
   } catch (err) {
     console.error('Create post error:', err);
     return res.status(500).json({ message: 'Server error' });
   }
 });
 
-// List ALL users' posts (for dashboard feed)
-app.get('/api/posts', auth, async (_req, res) => {
+
+// List feed: PUBLIC posts from anyone + PRIVATE posts from me
+app.get('/api/posts', auth, async (req, res) => {
   try {
+    // who am I?
+    const [urows] = await pool.execute('SELECT id FROM users WHERE email = ? LIMIT 1', [req.user.email]);
+    if (!urows.length) return res.status(401).json({ message: 'User not found' });
+    const userId = urows[0].id;
+
     const sql = `
-      SELECT p.id, p.title, p.body, p.created_at, u.email AS author
+      SELECT p.id, p.title, p.body, p.visibility, p.created_at, u.email AS author
       FROM posts p
       JOIN users u ON u.id = p.user_id
+      WHERE p.visibility = 'PUBLIC' OR p.user_id = ?
       ORDER BY p.created_at DESC, p.id DESC
     `;
-    const [rows] = await pool.execute(sql);
+    const [rows] = await pool.execute(sql, [userId]);
     return res.json(rows);
   } catch (err) {
     console.error('List posts error:', err);
     return res.status(500).json({ message: 'Server error' });
   }
 });
+
 
 // (Optional) List only my posts
 app.get('/api/posts/mine', auth, async (req, res) => {

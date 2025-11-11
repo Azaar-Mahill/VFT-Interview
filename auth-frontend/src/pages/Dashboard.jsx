@@ -8,15 +8,14 @@ export default function Dashboard() {
   const [posts, setPosts] = useState([]);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [visibility, setVisibility] = useState('PUBLIC'); // NEW
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
-
   const token = getToken();
 
   useEffect(() => {
     if (!token) return navigate('/login');
-    // validate token and load feed
     getMe(token)
       .then(me => setEmail(me.email))
       .then(() => listPosts(token).then(setPosts))
@@ -35,9 +34,8 @@ export default function Dashboard() {
     }
     try {
       setBusy(true);
-      await createPost(token, { title: title.trim(), body: body.trim() });
-      setTitle(''); setBody('');
-      // refresh feed
+      await createPost(token, { title: title.trim(), body: body.trim(), visibility }); // send visibility
+      setTitle(''); setBody(''); setVisibility('PUBLIC');
       const all = await listPosts(token);
       setPosts(all);
     } catch (e) {
@@ -46,6 +44,15 @@ export default function Dashboard() {
       setBusy(false);
     }
   };
+
+  const badge = (vis) => (
+    <span style={{
+      fontSize: 12, padding: '2px 8px', borderRadius: 12,
+      border: '1px solid #ccc', marginLeft: 8
+    }}>
+      {vis === 'PRIVATE' ? 'Private' : 'Public'}
+    </span>
+  );
 
   return (
     <div style={{ maxWidth: 720, margin: '40px auto', padding: 16 }}>
@@ -75,17 +82,28 @@ export default function Dashboard() {
           rows={4}
           required
         />
+        {/* NEW: visibility selector */}
+        <label style={{ display:'flex', gap:12, alignItems:'center' }}>
+          <span>Visibility:</span>
+          <select value={visibility} onChange={e=>setVisibility(e.target.value)}>
+            <option value="PUBLIC">Public (anyone can see)</option>
+            <option value="PRIVATE">Private (only me)</option>
+          </select>
+        </label>
+
         <button type="submit" disabled={busy}>{busy ? 'Saving...' : 'Post'}</button>
       </form>
       {err && <p style={{ color:'red' }}>{err}</p>}
 
-      <h3>All users’ posts</h3>
+      <h3>Feed (Public + your Private)</h3>
       {!posts.length && <p>No posts yet.</p>}
       <ul style={{ listStyle:'none', padding:0, display:'grid', gap:12 }}>
         {posts.map(p => (
           <li key={p.id} style={{ border:'1px solid #ddd', borderRadius:8, padding:12 }}>
-            <div style={{ display:'flex', justifyContent:'space-between' }}>
-              <strong>{p.title}</strong>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <div>
+                <strong>{p.title}</strong>{badge(p.visibility)}
+              </div>
               <small>{new Date(p.created_at).toLocaleString()}</small>
             </div>
             <p style={{ margin:'6px 0 8px' }}>{p.body}</p>
