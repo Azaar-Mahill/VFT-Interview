@@ -371,7 +371,7 @@ app.delete('/api/comments/:id', auth, async (req, res) => {
     if (!userId) return res.status(401).json({ message: 'User not found' });
 
     const [rows] = await pool.execute(
-      `SELECT c.id, c.user_id, p.user_id AS post_owner, p.visibility
+      `SELECT c.id, c.user_id AS comment_author, p.user_id AS post_owner, p.visibility
          FROM comments c
          JOIN posts p ON p.id = c.post_id
         WHERE c.id = ? LIMIT 1`,
@@ -382,7 +382,13 @@ app.delete('/api/comments/:id', auth, async (req, res) => {
     const c = rows[0];
     const canSeePost = c.visibility === 'PUBLIC' || c.post_owner === userId;
     if (!canSeePost) return res.status(403).json({ message: 'Not allowed (post is private)' });
-    if (c.user_id !== userId) return res.status(403).json({ message: 'Not your comment' });
+
+    const isCommentAuthor = c.comment_author === userId;
+    const isPostOwner = c.post_owner === userId;
+
+    if (!isCommentAuthor && !isPostOwner) {
+      return res.status(403).json({ message: 'Not allowed to delete this comment' });
+    }
 
     await pool.execute(`DELETE FROM comments WHERE id = ?`, [commentId]);
     return res.json({ ok: true, id: commentId });
@@ -391,3 +397,4 @@ app.delete('/api/comments/:id', auth, async (req, res) => {
     return res.status(500).json({ message: 'Server error' });
   }
 });
+

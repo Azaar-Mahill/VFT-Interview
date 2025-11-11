@@ -43,12 +43,8 @@ export default function Dashboard() {
   async function refresh() {
     const all = await listPosts(token);
     setPosts(all);
-
-    // keep any already-loaded comments; init others as {items:null,input:''}
     const initial = {};
-    for (const p of all) {
-      initial[p.id] = comments[p.id] || { items: null, input: '' };
-    }
+    for (const p of all) initial[p.id] = comments[p.id] || { items: null, input: '' };
     setComments(initial);
   }
 
@@ -261,7 +257,7 @@ export default function Dashboard() {
 
       <ul style={{ listStyle:'none', padding:0, display:'grid', gap:12 }}>
         {posts.map(p => {
-          const mine = p.author === email;
+          const minePost = p.author === email; // am I the post owner?
           const cstate = comments[p.id] || { items: null, input: '' };
           const isEditingPost = editId === p.id;
 
@@ -301,7 +297,7 @@ export default function Dashboard() {
               <small>by {p.author}</small>
 
               {/* Post controls (author only) */}
-              {mine && (
+              {minePost && (
                 <div style={{ display:'flex', gap:8, marginTop:8, alignItems:'center' }}>
                   {!isEditingPost ? (
                     <>
@@ -345,7 +341,7 @@ export default function Dashboard() {
                   {!cstate.items.length && <p style={{ margin: 0 }}>No comments yet. Be the first!</p>}
                   <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 8 }}>
                     {cstate.items.map(c => {
-                      const mineComment = c.author === email;
+                      const mineComment = c.author === email;     // I'm the comment author
                       const isEditingComment = editCommentId === c.id;
 
                       return (
@@ -374,12 +370,17 @@ export default function Dashboard() {
                             </div>
                           )}
 
-                          {mineComment && !isEditingComment && (
-                            <div style={{ display:'flex', gap:8, marginTop:6 }}>
+                          {/* Comment controls:
+                              - Edit: only when I'm the comment author
+                              - Delete: allowed for comment author OR post owner */}
+                          <div style={{ display:'flex', gap:8, marginTop:6 }}>
+                            {mineComment && !isEditingComment && (
                               <button onClick={() => startEditComment(c)}>Edit</button>
+                            )}
+                            {(mineComment || minePost) && !isEditingComment && (
                               <button onClick={() => removeComment(p.id, c.id)}>Delete</button>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </li>
                       );
                     })}
